@@ -5,36 +5,51 @@ const API_URL = 'http://localhost:5210/api/auth';
 // Android kullanıyorsan üsttekini yorum satırı yapıp şunu aç:
 // const API_URL = 'http://10.0.2.2:5210/api/auth';
 
-export const registerUser = async (fullName: string, email: string, password: string, companyName: string = "") => {  try {
+// YENİ HALİ: Tüm form verilerini tek bir "userData" objesi olarak alıyoruz
+export const registerUser = async (userData: any) => {  
+  try {
     const response = await fetch(`${API_URL}/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      // Backend'deki RegisterDto'nun beklediği değişken isimleriyle birebir aynı olmalı
-      body: JSON.stringify({
-        fullName: fullName,
-        email: email,
-        password: password,
-        companyName: companyName
-      }),
+      // VERİYİ TEK PARÇA HALİNDE GÖNDERİYORUZ
+      body: JSON.stringify(userData),
     });
 
-    // API'den dönen JSON cevabını okuyoruz
-    const data = await response.json();
+    // 2. C#'tan dönen "Ham" cevabı okuyalım
+    const rawText = await response.text();
+    console.log("Backend'den dönen cevap:", rawText);
 
-    // Eğer backend'den "BadRequest" veya "Unauthorized" (Örn: Email zaten var) dönerse
+    // 3. Eğer C# bizi reddettiyse (400 Bad Request vb.)
     if (!response.ok) {
-        throw new Error(data.message || 'Kayıt olurken bir hata oluştu.');
+        let errorMessage = `HTTP Hatası: ${response.status}`;
+        try {
+            const errorData = JSON.parse(rawText);
+            
+            // Eğer C# form doğrulama hatası (Örn: Geçersiz URL) verdiyse
+            if (errorData.errors) {
+                const firstErrorKey = Object.keys(errorData.errors)[0];
+                errorMessage = errorData.errors[firstErrorKey][0]; // Tam hatayı al (Örn: "Geçerli bir URL giriniz")
+            } 
+            // Eğer özel bir mesajımız varsa (Örn: "Bu email zaten kayıtlı")
+            else if (errorData.message) {
+                errorMessage = errorData.message;
+            }
+        } catch (error) {
+            errorMessage = rawText || errorMessage;
+        }
+        
+        // Yakaladığımız TAM hatayı ekrana fırlat
+        throw new Error(errorMessage);
     }
 
-    return data; // { message: "Kayıt işlemi başarılı!..." } dönecektir
+    return JSON.parse(rawText);
   } catch (error) {
-    console.error("Kayıt Hatası:", error);
     throw error;
   }
 };
-
+// GİRİŞ KISMI AYNI KALDI
 export const loginUser = async (email: string, password: string) => {
     try {
       const response = await fetch(`${API_URL}/login`, {
@@ -46,7 +61,16 @@ export const loginUser = async (email: string, password: string) => {
       const data = await response.json();
   
       if (!response.ok) {
-        throw new Error(data.message || 'Giriş yaparken bir hata oluştu.');
+        // Eğer C# form doğrulama hatası verdiyse (Örn: Geçersiz URL)
+        if (data.errors) {
+          // Hatalar listesindeki ilk hatanın ilk mesajını alıp gösteriyoruz
+          const firstErrorKey = Object.keys(data.errors)[0];
+          const firstErrorMessage = data.errors[firstErrorKey][0];
+          throw new Error(firstErrorMessage);
+        }
+        
+        // Standart hata mesajları
+        throw new Error(data.message || 'Kayıt olurken bir hata oluştu.');
       }
   
       return data; // Başarılıysa Token ve Kullanıcı bilgilerini döner
@@ -54,4 +78,4 @@ export const loginUser = async (email: string, password: string) => {
       console.error("Giriş Hatası:", error);
       throw error;
     }
-  };
+};
